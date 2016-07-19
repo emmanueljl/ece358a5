@@ -39,6 +39,7 @@ int main(int argc, char *argv[]) {
 		exit(0);
 	}
 	int s = rcsSocket();
+	fprintf(stderr, "Inside client main, the socket index is %d\n", s);
 	struct sockaddr_in a;
 
 	memset(&a, 0, sizeof(struct sockaddr_in));

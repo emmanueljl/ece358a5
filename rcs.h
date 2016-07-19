@@ -7,6 +7,17 @@
 
 #include <netinet/in.h>
 
+// struct RCSSOC {
+// 	int ucpfd;
+// 	int seq;
+// 	int isBinded;
+// 	int isListening;
+// 	struct sockaddr_in *src;
+// 	struct sockaddr_in *dest;
+// };
+
+// extern struct RCSSOC *rcssoc_array; 
+
 int rcsSocket();
 int rcsBind(int sockfd, struct sockaddr_in *addr);
 int rcsGetSockName(int sockfd, struct sockaddr_in *addr);

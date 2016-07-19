@@ -62,7 +62,7 @@ int ucpSetSockRecvTimeout(int sockfd, int milliSecs)
 
 int ucpSendTo(int sockfd, const void *buf, int len, const struct sockaddr_in *to)
 {
-    const int pDoEvil = 10; /* Chance in 100 that we will do evil */
+    const int pDoEvil = 0; /* Chance in 100 that we will do evil */
 
     if(len <= 0) {
 	errno = EINVAL; /* Invalid arg */
@@ -95,6 +95,7 @@ int ucpSendTo(int sockfd, const void *buf, int len, const struct sockaddr_in *to
 	}
     }
 
+    fprintf(stderr,"Get here in ucpSendTo------------ \n");
     return((int)sendto(sockfd, (const void *)sendBuf, (size_t)len, 0,
 			(const struct sockaddr *)to,
     			(socklen_t)sizeof(struct sockaddr_in)));
@@ -103,6 +104,7 @@ int ucpSendTo(int sockfd, const void *buf, int len, const struct sockaddr_in *to
 ssize_t ucpRecvFrom(int sockfd, void *buf, int len, struct sockaddr_in *from)
 {
     socklen_t addrlen = (socklen_t)sizeof(struct sockaddr_in);
+    fprintf(stderr,"Get here in ucpRecvFrom------------ \n");
     return((int)recvfrom(sockfd, buf, (size_t)len, 0, (struct sockaddr *)from,
 			    &addrlen));
 }
