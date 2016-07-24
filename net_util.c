@@ -54,11 +54,12 @@ uint32_t getPublicIPAddr()
 	freeifaddrs(ifa);
 	return 0;
 }
-    
+
 
 /* 
  * mybind() -- a wrapper to bind that tries to bind() to a port in the
- * range PORT_RANGE_LO - PORT_RANGE_HI, inclusive.
+ * range PORT_RANGE_LO - PORT_RANGE_HI, inclusive, if the provided port is 0.
+ * Or else, it will try to just call bind instead.
  *
  * Parameters:
  *
@@ -67,9 +68,9 @@ uint32_t getPublicIPAddr()
  * addr -- a pointer to struct sockaddr_in. mybind() works for AF_INET sockets only.
  * Note that addr is and in-out parameter. That is, addr->sin_family and
  * addr->sin_addr are assumed to have been initialized correctly before the call.
- * Also, addr->sin_port must be 0, or the call returns with an error. Up on return,
- * addr->sin_port contains, in network byte order, the port to which the call bound
- * sockfd.
+ * If addr->sin_port is not 0, it will try to bind to the provided port.
+ * Up on return, addr->sin_port contains, in network byte order, the port to which 
+ * the call bound sockfd.
  *
  * returns int -- negative return means an error occurred, else the call succeeded.
  */
@@ -84,9 +85,17 @@ int mybind(int sockfd, struct sockaddr_in *addr) {
 		return -1;
 	}
 
+	// if(addr->sin_port != 0) {
+	//     fprintf(stderr, "mybind(): addr->sin_port is non-zero. Perhaps you want bind() instead?\n");
+	//     return -1;
+	// }
+
 	if(addr->sin_port != 0) {
-		fprintf(stderr, "mybind(): addr->sin_port is non-zero. Perhaps you want bind() instead?\n");
-		return -1;
+		if(bind(sockfd, (const struct sockaddr *)addr, sizeof(struct sockaddr_in)) < 0) {
+			fprintf(stderr, "mybind(): cannot bind to port %d\n", addr->sin_port);
+			return -1;
+		}
+		return 0;
 	}
 
 	unsigned short p;
@@ -95,7 +104,8 @@ int mybind(int sockfd, struct sockaddr_in *addr) {
 		int b = bind(sockfd, (const struct sockaddr *)addr, sizeof(struct sockaddr_in));
 		if(b < 0) {
 			continue;
-		} else {
+		}
+		else {
 			break;
 		}
 	}
@@ -106,6 +116,6 @@ int mybind(int sockfd, struct sockaddr_in *addr) {
 	}
 
 	/* Note: upon successful return, addr->sin_port contains, in network byte order, the
-	* port to which we successfully bound. */
+	 * port to which we successfully bound. */
 	return 0;
 }

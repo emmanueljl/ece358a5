@@ -78,6 +78,7 @@ int main(int argc, char *argv[]) {
 		sleep(getrand()%7);
 	}
 
+	fprintf(stderr, "%s\n", "Client shutting down.....");
 	rcsClose(s);
 
 	return 0;

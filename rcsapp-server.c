@@ -55,6 +55,7 @@ void *serviceConnection(void *arg) {
 			printf("%lu exiting, spot 1...\n", pthread_self());
 #endif
 			close(wfd);
+			fprintf(stderr, "%s\n", "Client shutting down.  on line 58....");
 			rcsClose(s);
 			return NULL;
 		}
@@ -62,6 +63,7 @@ void *serviceConnection(void *arg) {
 		if(write(wfd, buf, recvlen) < recvlen) {
 			perror("write() in thread wrote too few");
 			close(wfd);
+			fprintf(stderr, "%s\n", "Client shutting down.  on line 66....");
 			rcsClose(s);
 			return NULL;
 		}
@@ -71,6 +73,7 @@ void *serviceConnection(void *arg) {
 	printf("%lu exiting, spot 2...\n", pthread_self());
 #endif
 	close(wfd);
+	fprintf(stderr, "%s\n", "Client shutting down.  on line 76....");
 	rcsClose(s);
 	return NULL;
 }
