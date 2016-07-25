@@ -13,7 +13,7 @@
 #include "rcs.h"
 #include "ucp.h"
 #define LISTEN_BACKLOG 10
-#define SHA_DIGEST_LENGTH 40
+#define CHECKSUM_LENGTH 4
 #define UDP_DATAGRAM_SIZE 500
 #define SEQUENCE_NUMBER_SIZE 2
 
@@ -98,13 +98,16 @@ int rcsSocket() {
 	// fprintf(stdout,"ucpfd in init is %d \n", ucpfd);
 	rcsfd = 0;
 	i = 0;
-	while ((i<100) && (rcssoc_array[i]!=0)) i++;
+	while ((i<100) && (rcssoc_array[i]!=0)) {i++;}
 	if (i==100) return -1;
+	fprintf(stderr, "Current i is %d\n", i);
 	rcsfd = i;
 	r = (struct RCSSOC*)malloc(sizeof(struct RCSSOC));
 	r->ucpfd = ucpfd;
 	r->inUse = 1;
 	rcssoc_array[i] = r;
+
+	fprintf(stderr, "Newly added socket is %d with ucp socket id %d\n", rcsfd, ucpfd);
 	return rcsfd;
 	/* Old code. Have some coding issus. Rewritten.
 	for(i = 0; i < sizeof(rcssoc_array) / sizeof(struct RCSSOC); i ++){
@@ -276,7 +279,7 @@ int rcsRecv(int sockfd, void *buf, int len)
 	int ucp_socket_fd = origin -> ucpfd;
 	int received_bytes = 0;
 	int seq = origin -> seq;
-	char* cs;
+	uint16_t cs;
 	char* send_buffer;
 
 	received_bytes = ucpRecvFrom(ucp_socket_fd, rcvbuffer, len, sender_addr);
@@ -287,29 +290,31 @@ int rcsRecv(int sockfd, void *buf, int len)
 		msg = "nack";
 	}
 
-	cs = get_checksum(seq, msg);
+	cs = get_checksum(msg, seq);
 	send_buffer = (char*)make_pct(seq, msg, cs);
 
 	ucpSendTo(ucp_socket_fd, send_buffer, sizeof(send_buffer), origin->src);
 
-	buf = &rcvbuffer[42];
-	return received_bytes - SHA_DIGEST_LENGTH - SEQUENCE_NUMBER_SIZE;
+	buf = &(rcvbuffer[6]);
+	return received_bytes - CHECKSUM_LENGTH - SEQUENCE_NUMBER_SIZE;
 } 
 
 int is_ack(void *buf, int seq) {
-	char *seq_from_buffer[3];
-	char *seq_from_int[3];
-	char msg_from_buffer;
-	memcpy( seq_from_buffer, &buf[40], 2 );
-	seq_from_buffer[2] = '\0';
-	sprintf(seq_from_int,"%ld", seq);
+	int seq_from_buffer;
+	char msg_from_buffer[1];
+	char* index;
+	index = buf+4;
+	seq_from_buffer = ((int*)index)[0];
 
-	if(strcmp(seq_from_buffer, seq_from_int) != 0){
+	if(seq == seq_from_buffer) {
 		return 0;
 	}
 
-	memcpy( msg_from_buffer, &buff[42], 1);
-	if(msg_from_buffer == 'n') {
+	index += 2;
+
+	memcpy( msg_from_buffer, index, 1);
+
+	if(msg_from_buffer[0] == 'n') {
 		return 0;
 	}
 
@@ -322,7 +327,7 @@ int rcsSend(int sockfd, void *buf, int len)
 	struct sockaddr_in *sender_addr = (struct sockaddr_in*)malloc(sizeof(struct sockaddr_in));
 	struct RCSSOC *origin = rcssoc_array[sockfd];
 	int ucp_socket_fd = origin -> ucpfd;
-	char* cs = get_checksum(origin -> seq, buf);
+	uint16_t cs = get_checksum(buf, origin -> seq);
 	char* send_buffer = make_pct(origin -> seq, buf, cs);
 	int status_code;
 
@@ -350,7 +355,7 @@ int rcsSend(int sockfd, void *buf, int len)
 
 	origin->seq += 1;
 
-	return status_code - SEQUENCE_NUMBER_SIZE - SHA_DIGEST_LENGTH;
+	return status_code - SEQUENCE_NUMBER_SIZE - CHECKSUM_LENGTH;
 }
 
 int rcsClose(int sockfd)
@@ -403,4 +408,3 @@ int verify_checksum(char *buf) {
     return strcmp(hash,hash_from_buf) == 0 ? 1 : 0;
 }
 */
-
