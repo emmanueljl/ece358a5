@@ -2,6 +2,7 @@
  * @brief: ECE358 RCS API interface dummy implementation 
  *
  */
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,7 +14,7 @@
 #include "ucp.h"
 #define LISTEN_BACKLOG 10
 #define SHA_DIGEST_LENGTH 40
-#define UDP_DATAGRAM_SIZE 65500
+#define UDP_DATAGRAM_SIZE 500
 #define SEQUENCE_NUMBER_SIZE 2
 
 struct RCSSOC {
@@ -28,17 +29,86 @@ struct RCSSOC {
 	char* rcvbuffer[1280];
 };
 
-struct RCSSOC *rcssoc_array[100] = {0}; 
+struct RCSSOC *rcssoc_array[100] = {0};
 
-int rcsSocket() 
-{
-	int ucpfd = ucpSocket();
-	// fprintf(stdout,"ucpfd in init is %d \n", ucpfd);
-	int rcsfd = 0;
+/*
+Checksum functions:
+1. uint16_t get_checksum(char *buf, int seq) returns the checksum based on Fletcher16
+2. int verify_checksum(char *payload) returns the result of verification
+*/ 
+
+uint16_t get_checksum(char* buf, int seq) {
+	// Follows the standard Fletcher16
+	uint16_t sum1;
+	uint16_t sum2;
+	uint16_t hash;
+	uint16_t ret;
+	int index = 0;
+	hash = 255;
+	sum1 = seq % 255;
+	sum2 = seq % 255;
+	while(buf[index] != '\0') {
+		sum1 = (sum1 + (buf[index] - '0')) % 255;
+		sum2 = (sum2 + sum1)  % 255;
+		index += 1;
+	}
+	ret = sum2 << 8;
+	ret = ret | sum1;
+	return ret;
+}
+
+int verify_checksum(char* payload) {
+	// TODO: Test.
+	char* index;
+	uint16_t old_checksum;
+	uint16_t new_checksum;
+	int seq;
+	index = payload;
+	old_checksum = ((uint16_t *)index)[0];
+	index += 4;
+	seq = ((uint16_t *)index)[0];
+	index += 2;
+	new_checksum = get_checksum(index, seq);
+	if (new_checksum == old_checksum) return 1;
+	else return 0;
+}
+
+char* make_pct(int seq, void *buf, int checksum) {
+	// char* datagram[UDP_DATAGRAM_SIZE]; // check buf size fistr, not necessary max size
+	// // How to copy ???????!?!!!!
+	// datagram[0] = checksum;
+	// datagram[40] = seq;
+	// datagram[42] = buf;
+	return "datagram";
+}
+/*
+RCS functions:
+1. int rcsSocket() returns a socket descriptor or -1 as error.
+2. int rcsBind(int, struct sockaddr_in*) returns 0 on success.
+*/
+int rcsSocket() {
+	// TODO: errno should be set here.
+	// TODO: Test.
+	int ucpfd;
+	int rcsfd;
 	int i;
+	struct RCSSOC* r;
+	ucpfd = ucpSocket();
+	if( ucpfd == -1) return -1;
+	// fprintf(stdout,"ucpfd in init is %d \n", ucpfd);
+	rcsfd = 0;
+	i = 0;
+	while ((i<100) && (rcssoc_array[i]!=0)) i++;
+	if (i==100) return -1;
+	rcsfd = i;
+	r = (struct RCSSOC*)malloc(sizeof(struct RCSSOC));
+	r->ucpfd = ucpfd;
+	r->inUse = 1;
+	rcssoc_array[i] = r;
+	return rcsfd;
+	/* Old code. Have some coding issus. Rewritten.
 	for(i = 0; i < sizeof(rcssoc_array) / sizeof(struct RCSSOC); i ++){
 		if(rcssoc_array[i] == 0){
-			
 			rcsfd = i;
 			struct RCSSOC *r = (struct RCSSOC*)malloc(sizeof(struct RCSSOC));
 			r->ucpfd = ucpfd;
@@ -48,12 +118,13 @@ int rcsSocket()
 			break;
 		}
 	}
-
 	return rcsfd;
+	*/
 }
 
-int rcsBind(int sockfd, struct sockaddr_in *addr) 
-{
+int rcsBind(int sockfd, struct sockaddr_in *addr) {
+	// TODO: set errno
+	// TODO: Test.
 	int ucpfd;
 	int status_code;
 	if(sockfd > 99 || sockfd < 0) {
@@ -72,8 +143,9 @@ int rcsBind(int sockfd, struct sockaddr_in *addr)
 	}
 }
 
-int rcsGetSockName(int sockfd, struct sockaddr_in *addr) 
-{
+int rcsGetSockName(int sockfd, struct sockaddr_in *addr) {
+	// TODO: set errno
+	// TODO: Test.
 	int ucpfd;
 	int status_code;
 	if(sockfd > 99 || sockfd < 0) {
@@ -82,12 +154,13 @@ int rcsGetSockName(int sockfd, struct sockaddr_in *addr)
 	}
 	ucpfd = rcssoc_array[sockfd]->ucpfd;
 	status_code = ucpGetSockName(ucpfd, addr);
+	if (status_code == -1) return -1;
 	rcssoc_array[sockfd]->src = addr;
 	return status_code;
 }
 
-int rcsListen(int sockfd)
-{
+int rcsListen(int sockfd) {
+	// TODO: set errno
 	if(sockfd > 99 || sockfd < 0) {
 		fprintf(stderr,"Invalid sockfd! \n");
 		return -1;
@@ -97,50 +170,7 @@ int rcsListen(int sockfd)
 	return 0;
 }
 
-char* get_checksum(int seq, void* buf){
-	int i;
-	int payload_size = UDP_DATAGRAM_SIZE - SHA_DIGEST_LENGTH;
-    unsigned char hash[SHA_DIGEST_LENGTH];
-    char *payload;
-    char *checksum;
-    size_t length;
-    payload = malloc(payload_size);
-    memset(payload, 0, payload_size);
-    checksum = malloc(SHA_DIGEST_LENGTH);
-    memset(checksum, 0, SHA_DIGEST_LENGTH);
-    memcpy(payload, &seq, SEQUENCE_NUMBER_SIZE);
-    //strncpy(payload, seq, SEQUENCE_NUMBER_SIZE);
-    strncpy(&payload[2], buf, payload_size - SEQUENCE_NUMBER_SIZE);
-    length = sizeof(payload);
-    SHA1(payload, length, hash);
-
-    for (i = 0; i < SHA_DIGEST_LENGTH; i++) {
-        checksum[i] = hash[i];
-    }
-    return checksum;
-}
-
-int verify_checksum(char *buf) {
-    int payload_size = UDP_DATAGRAM_SIZE - SHA_DIGEST_LENGTH;
-    char *payload[payload_size];
-    strncpy(payload, &buf[40], payload_size);
-    unsigned char hash_from_buf[SHA_DIGEST_LENGTH];
-    strncpy(hash_from_buf, buf, SHA_DIGEST_LENGTH);
-    size_t length = sizeof(payload);
-    unsigned char hash[SHA_DIGEST_LENGTH];
-    SHA1(payload, length, hash);
-    return strcmp(hash,hash_from_buf) == 0 ? 1 : 0;
-}
-
-const char* make_pct(int seq, void *buf, int checksum){
-	// char* datagram[UDP_DATAGRAM_SIZE]; // check buf size fistr, not necessary max size
-	// // How to copy ???????!?!!!!
-	// datagram[0] = checksum;
-	// datagram[40] = seq;
-	// datagram[42] = buf;
-	return "datagram";
-}
-
+// From this point, the code has not been checked.
 int rcsAccept(int sockfd, struct sockaddr_in *addr)
 {
 	char *buffer;
@@ -266,8 +296,6 @@ int rcsRecv(int sockfd, void *buf, int len)
 	return received_bytes - SHA_DIGEST_LENGTH - SEQUENCE_NUMBER_SIZE;
 } 
 
-
-
 int is_ack(void *buf, int seq) {
 	char *seq_from_buffer[3];
 	char *seq_from_int[3];
@@ -334,3 +362,45 @@ int rcsClose(int sockfd)
 
 	return 0;
 }
+
+/* Old implementations. Delete later.
+char* get_checksum(int seq, char* buf) {
+	char *payload; //This is a local payload area, used to calculate checksome
+	char *checksum; //SHA1 value of SEQ+DATA
+	int length; //The size of SEQ+DATA
+    unsigned char hash[SHA_DIGEST_LENGTH]; //char array holding the SHA1 value
+	char *index;
+	int i;
+	int payload_size = UDP_DATAGRAM_SIZE - SHA_DIGEST_LENGTH;
+	i = 0;
+	checksum = malloc(SHA_DIGEST_LENGTH+1);
+	memset(checksum, 0, SHA_DIGEST_LENGTH+1);
+    payload = malloc(payload_size);
+    memset(payload, 0, payload_size);
+	index = payload;
+    memcpy(payload, &seq, SEQUENCE_NUMBER_SIZE);
+	index += 2;
+    strncpy(index, buf, payload_size -SEQUENCE_NUMBER_SIZE-1);
+    length = 2+strlen(index);
+    SHA1(payload, length, hash);
+    for (i = 0; i < SHA_DIGEST_LENGTH; i++) {
+        checksum[i] = hash[i];
+    }
+	free(payload);
+    return &(checksum[0]);
+}
+
+int verify_checksum(char *buf) {
+	
+    int payload_size = UDP_DATAGRAM_SIZE - SHA_DIGEST_LENGTH;
+    char *payload;
+    strncpy(payload, &(buf[40]), payload_size);
+    unsigned char hash_from_buf[SHA_DIGEST_LENGTH];
+    strncpy(hash_from_buf, buf, SHA_DIGEST_LENGTH);
+    size_t length = sizeof(payload);
+    unsigned char hash[SHA_DIGEST_LENGTH];
+    SHA1(payload, length, hash);
+    return strcmp(hash,hash_from_buf) == 0 ? 1 : 0;
+}
+*/
+
