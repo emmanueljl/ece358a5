@@ -1,5 +1,5 @@
 /**
- * @brief: ECE358 RCS API interface dummy implementation 
+ * @brief: ECE358 RCS API interface dummy implementation
  *
  */
 #include <stdint.h>
@@ -16,6 +16,8 @@
 #define CHECKSUM_LENGTH 4
 #define UDP_DATAGRAM_SIZE 500
 #define SEQUENCE_NUMBER_SIZE 2
+
+extern int errno;
 
 struct RCSSOC {
 	int inUse;
@@ -35,7 +37,7 @@ struct RCSSOC *rcssoc_array[100] = {0};
 Checksum functions:
 1. uint16_t get_checksum(char *buf, int seq) returns the checksum based on Fletcher16
 2. int verify_checksum(char *payload) returns the result of verification
-*/ 
+*/
 
 uint16_t get_checksum(char* buf, int seq) {
 	// Follows the standard Fletcher16
@@ -104,12 +106,18 @@ int rcsSocket() {
 	struct RCSSOC* r;
 	ucpfd = ucpSocket();
 	fprintf(stderr, "UCPFD i is %d\n", ucpfd);
-	if( ucpfd == -1) return -1;
+	if( ucpfd == -1) {
+		errno = EBADF; /* Bad file descriptor */
+		return -1;
+	}
 	// fprintf(stdout,"ucpfd in init is %d \n", ucpfd);
 	rcsfd = 0;
 	i = 0;
 	while ((i<100) && (rcssoc_array[i]!=0)) {i++;}
-	if (i==100) return -1;
+	if (i==100) {
+		errno = ENOBUFS; /* No buffer space available */
+		return -1;
+	}
 	fprintf(stderr, "Current i is %d\n", i);
 	rcsfd = i;
 	r = (struct RCSSOC*)malloc(sizeof(struct RCSSOC));
@@ -142,6 +150,7 @@ int rcsBind(int sockfd, struct sockaddr_in *addr) {
 	int status_code;
 	if(sockfd > 99 || sockfd < 0) {
 		fprintf(stderr,"Invalid sockfd! \n");
+		errno = EINVAL; /* Invalid argument */
 		return -1;
 	}
 	ucpfd = rcssoc_array[sockfd]->ucpfd;
@@ -163,6 +172,7 @@ int rcsGetSockName(int sockfd, struct sockaddr_in *addr) {
 	int status_code;
 	if(sockfd > 99 || sockfd < 0) {
 		fprintf(stderr,"Invalid sockfd! \n");
+		errno = EINVAL; /* Invalid argument */
 		return -1;
 	}
 	ucpfd = rcssoc_array[sockfd]->ucpfd;
@@ -176,6 +186,7 @@ int rcsListen(int sockfd) {
 	// TODO: set errno
 	if(sockfd > 99 || sockfd < 0) {
 		fprintf(stderr,"Invalid sockfd! \n");
+		errno = EINVAL; /* Invalid argument */
 		return -1;
 	}
 	rcssoc_array[sockfd]->isListening = 1;
@@ -197,16 +208,18 @@ int rcsAccept(int sockfd, struct sockaddr_in *addr) {
 
 	if(sockfd > 99 || sockfd < 0) {
 		fprintf(stderr,"Invalid sockfd! \n");
+		errno = EINVAL; /* Invalid argument */
 		return -1;
 	}
 	if(origin->isListening == 0){
 		fprintf(stderr,"Socket %d is not listening! \n", sockfd);
+		errno = EOPNOTSUPP; /* Operation not supported on socket */
 		return -1;
 	}
 
 	fprintf(stderr, "Accept before block ------------  receive from %d \n", origin -> ucpfd);
-	
-	
+
+
 	blocked = ucpRecvFrom(origin -> ucpfd, buffer, 4, sender_addr);
 	fprintf(stderr, "First message from client is %s\n", buffer);
 
@@ -260,6 +273,7 @@ int rcsConnect(int sockfd, const struct sockaddr_in *addr)
 
 	if(sockfd > 99 || sockfd < 0) {
 		fprintf(stderr,"Invalid sockfd! \n");
+		errno = EINVAL; /* Invalid argument */
 		return -1;
 	}
 	if(origin -> isBinded == 0){
@@ -269,7 +283,7 @@ int rcsConnect(int sockfd, const struct sockaddr_in *addr)
 
 	v = ucpSendTo(origin -> ucpfd, msg, 4, addr);
 	fprintf(stderr, "Connect before block ------------  Send to upd %d ---- returned %d\n", origin -> ucpfd, v);
-	
+
     blocked = ucpRecvFrom(origin -> ucpfd, buffer, 8, sender_addr);
 
     fprintf(stderr, "Meesage from server is %s\n", buffer);
@@ -312,7 +326,7 @@ int rcsRecv(int sockfd, void *buf, int len)
 
 	buf = &(rcvbuffer[6]);
 	return received_bytes - CHECKSUM_LENGTH - SEQUENCE_NUMBER_SIZE;
-} 
+}
 
 int is_ack(void *buf, int seq) {
 	int seq_from_buffer;
@@ -412,7 +426,7 @@ char* get_checksum(int seq, char* buf) {
 }
 
 int verify_checksum(char *buf) {
-	
+
     int payload_size = UDP_DATAGRAM_SIZE - SHA_DIGEST_LENGTH;
     char *payload;
     strncpy(payload, &(buf[40]), payload_size);
