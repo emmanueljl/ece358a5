@@ -26,7 +26,7 @@ struct RCSSOC {
 	int isListening;
 	struct sockaddr_in *src;
 	struct sockaddr_in *dest;
-	char* rcvbuffer[1280];
+	char* rcvbuffer[500];
 };
 
 struct RCSSOC *rcssoc_array[100] = {0};
@@ -73,13 +73,22 @@ int verify_checksum(char* payload) {
 	else return 0;
 }
 
-char* make_pct(int seq, void *buf, int checksum) {
-	// char* datagram[UDP_DATAGRAM_SIZE]; // check buf size fistr, not necessary max size
-	// // How to copy ???????!?!!!!
-	// datagram[0] = checksum;
-	// datagram[40] = seq;
-	// datagram[42] = buf;
-	return "datagram";
+char* make_pct(int seq, char* buf, uint16_t checksum) {
+	char* payload;
+	char* index;
+	payload = malloc(UDP_DATAGRAM_SIZE);
+	memset(payload, 0, UDP_DATAGRAM_SIZE);
+	index = payload;
+	((uint16_t*)index)[0] = checksum;
+	index += 4;
+	((int*)index)[0] = seq;
+	index += 2;
+	strncpy(index, buf, UDP_DATAGRAM_SIZE - 6);
+
+
+
+
+	return payload;
 }
 /*
 RCS functions:
@@ -233,7 +242,7 @@ int rcsAccept(int sockfd, struct sockaddr_in *addr) {
 	fprintf(stderr, "Second message from client is %s\n", buffer);
 
 
-	if(buffer[0] != 'c') {
+	if(strcmp(buffer, "ack")) {
 		return -1;
 	}
 
@@ -268,7 +277,7 @@ int rcsConnect(int sockfd, const struct sockaddr_in *addr)
 
     msg = "ack\0";
 	v = ucpSendTo(origin -> ucpfd, msg, 10, addr);
-
+	origin->dest = sender_addr;
 	return 0;
 }
 
@@ -288,6 +297,7 @@ int rcsRecv(int sockfd, void *buf, int len)
 	char* send_buffer;
 
 	received_bytes = ucpRecvFrom(ucp_socket_fd, rcvbuffer, len, sender_addr);
+	printf("received bytes:%d\n", received_bytes);
 
 	if(verify_checksum(rcvbuffer)) {
 		msg = "ack";
@@ -326,24 +336,25 @@ int is_ack(void *buf, int seq) {
 	return 1;
 }
 
-int rcsSend(int sockfd, void *buf, int len)
-{
+int rcsSend(int sockfd, void *buf, int len) {
 	char *ack_buffer;
 	struct sockaddr_in *sender_addr = (struct sockaddr_in*)malloc(sizeof(struct sockaddr_in));
 	struct RCSSOC *origin = rcssoc_array[sockfd];
 	int ucp_socket_fd = origin -> ucpfd;
 	uint16_t cs = get_checksum(buf, origin -> seq);
-	char* send_buffer = make_pct(origin -> seq, buf, cs);
+	char* send_buffer = make_pct(origin->seq, buf, cs);
 	int status_code;
 
 	// if(len > some max){
 	// 	len = some max;
 	// }
-
 	if((status_code = ucpSendTo(ucp_socket_fd, send_buffer, len, origin->dest)) <= 0){
 		fprintf(stderr,"Socket %d failed to send messgae! \n", sockfd);
 		return -1;
 	}
+
+	printf("seq=%d\n", ((int*)(send_buffer+4))[0]);
+	printf("msg=%s\n", send_buffer+6);
 
 	while (1) {
 		if(ucpSetSockRecvTimeout(ucp_socket_fd, 800) == EWOULDBLOCK){
