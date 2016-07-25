@@ -96,15 +96,11 @@ int rcsSocket() {
 	int i;
 	struct RCSSOC* r;
 	ucpfd = ucpSocket();
-<<<<<<< Updated upstream
 	fprintf(stderr, "UCPFD i is %d\n", ucpfd);
-	if( ucpfd == -1) return -1;
-=======
 	if( ucpfd == -1) {
 		errno = EBADF; /* Bad file descriptor */
 		return -1;
 	}
->>>>>>> Stashed changes
 	// fprintf(stdout,"ucpfd in init is %d \n", ucpfd);
 	rcsfd = 0;
 	i = 0;
@@ -276,7 +272,6 @@ int rcsConnect(int sockfd, const struct sockaddr_in *addr)
 		return -1;
 	}
 
-<<<<<<< Updated upstream
 	v = ucpSendTo(origin -> ucpfd, msg, 4, addr);
 	fprintf(stderr, "Connect before block ------------  Send to upd %d ---- returned %d\n", origin -> ucpfd, v);
 
@@ -284,12 +279,6 @@ int rcsConnect(int sockfd, const struct sockaddr_in *addr)
 
     fprintf(stderr, "Meesage from server is %s\n", buffer);
 	fprintf(stderr, "Connect after block ---------%s--- \n", buffer);
-=======
-	v = ucpSendTo(origin -> ucpfd, msg, 10, addr);
-	// fprintf(stderr, "Connect before block ------------  Send to upd %d ---- returned %d\n", origin -> ucpfd, v);
-
-    blocked = ucpRecvFrom(origin -> ucpfd, buffer, 10, sender_addr);
->>>>>>> Stashed changes
 
     msg = "ack\0";
 	v = ucpSendTo(origin -> ucpfd, msg, 10, addr);
