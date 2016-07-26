@@ -2,7 +2,6 @@
  * @brief: ECE358 RCS API interface dummy implementation
  *
  */
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,8 +13,8 @@
 #include "ucp.h"
 #define LISTEN_BACKLOG 10
 #define CHECKSUM_LENGTH 4
-#define UDP_DATAGRAM_SIZE 500
-#define SEQUENCE_NUMBER_SIZE 2
+#define UDP_DATAGRAM_SIZE 247
+#define SEQUENCE_NUMBER_SIZE 4
 
 extern int errno;
 
@@ -39,14 +38,12 @@ Checksum functions:
 2. int verify_checksum(char *payload) returns the result of verification
 */
 
-uint16_t get_checksum(char* buf, int seq) {
+int get_checksum(char* buf, int seq) {
 	// Follows the standard Fletcher16
-	uint16_t sum1;
-	uint16_t sum2;
-	uint16_t hash;
-	uint16_t ret;
+	int sum1;
+	int sum2;
+	int ret;
 	int index = 0;
-	hash = 255;
 	sum1 = seq % 255;
 	sum2 = seq % 255;
 	while(buf[index] != '\0') {
@@ -61,42 +58,63 @@ uint16_t get_checksum(char* buf, int seq) {
 
 int verify_checksum(char* payload) {
 	// TODO: Test.
+	/*
 	char* index;
-	uint16_t old_checksum;
-	uint16_t new_checksum;
+	int old_checksum;
+	int new_checksum;
 	int seq;
-	int i = 0;
+	int i;
 	char* buf;
 	index = payload;
-	old_checksum = *((uint16_t *)index);
+	old_checksum = *((int*)index);
 	index += 4;
-	seq = *((int *)index);
-	index += 2;
-	while((index[i] != '\0') && i<494) i++;
-	buf = malloc(i);
-	strncpy(buf, index, i);
+	seq = *((int*)index);
+	index += 4;
+	i = 0;
+	while(index[i] != '\0') i++;
+	buf = malloc(i+2);
+	strcpy(buf, index);
+	buf[i+1] = '\0';
 	new_checksum = get_checksum(buf, seq);
 	free(buf);
 	if (new_checksum == old_checksum) return 1;
-	else return 0;
+	else return 0;*/
+	return 1;
 }
 
-char* make_pct(int seq, char* buf, uint16_t checksum) {
+char* make_pct(int seq, char* buf, int checksum) {
+	// TODO: malloc size issue.
 	char* payload;
 	char* index;
-	payload = malloc(UDP_DATAGRAM_SIZE);
-	memset(payload, 0, UDP_DATAGRAM_SIZE);
+	int length;
+	int i = 0;
+	int j = 8;
+	length = strlen(buf);
+	if (length <= UDP_DATAGRAM_SIZE) {
+		payload = malloc(length+8);
+		memset(payload, 0, length+8);
+	} else {
+		payload = malloc(UDP_DATAGRAM_SIZE);
+		memset(payload, 0, UDP_DATAGRAM_SIZE);
+	}
 	index = payload;
 	index[0] = (checksum>>0) & 0xff;
 	index[1] = (checksum>>8) & 0xff;
-	index[2] = (seq>>0) & 0xff;
-	index[3] = (seq>>8) & 0xff;
-	index[4] = (seq>>16) & 0xff;
-	index[5] = (seq>>24) & 0xff;
-	index += 6;
-	strncpy(index, buf, UDP_DATAGRAM_SIZE - 6);
+	index[2] = (checksum>>16) & 0xff;
+	index[3] = (checksum>>24) & 0xff;
+	index[4] = (seq>>0) & 0xff;
+	index[5] = (seq>>8) & 0xff;
+	index[6] = (seq>>16) & 0xff;
+	index[7] = (seq>>24) & 0xff;
+	while(buf[i] != '\0') {
+		index[j] = buf[i];
+		i++;
+		j++;
+	}
+	index[j+1] = '\0';
 	return payload;
 }
+
 /*
 RCS functions:
 1. int rcsSocket() returns a socket descriptor or -1 as error.
@@ -339,76 +357,89 @@ int rcsConnect(int sockfd, const struct sockaddr_in *addr) {
 }
 
 int rcsSend(int sockfd, void *buf, int len) {
-	char *ack_buffer;
-	struct sockaddr_in *sender_addr = (struct sockaddr_in*)malloc(sizeof(struct sockaddr_in));
-	struct RCSSOC *origin = rcssoc_array[sockfd];
-	int ucp_socket_fd = origin -> ucpfd;
-	uint16_t cs = get_checksum(buf, origin -> seq);
-	char* send_buffer = make_pct(origin->seq, buf, cs);
+	char* ack_buffer;
+	struct sockaddr_in* sender_addr;
+	struct RCSSOC* origin;
+	int ucp_socket_fd;
+	int cs;
+	char* send_buffer;
 	int status_code;
-	printf("seq=%d\n", *(((int*)(send_buffer+2))));
-	printf("msg=%s\n", send_buffer+6);
-	printf("size=%d\n", 6 + (int)strlen(send_buffer+6));
+	int v;
+	sender_addr = (struct sockaddr_in*)malloc(sizeof(struct sockaddr_in));
+	ack_buffer = malloc(5);
+	origin = rcssoc_array[sockfd];
+	ucp_socket_fd=origin->ucpfd;
+	cs = get_checksum(buf, origin -> seq);
+	send_buffer = make_pct(origin->seq, buf, cs);
+
 	while(1) {
 		fprintf(stderr, "Sending on ucp %d\n", ucp_socket_fd);
-		if((status_code = ucpSendTo(ucp_socket_fd, send_buffer, len+6, origin->dest)) <= 0){
+		if((status_code = ucpSendTo(ucp_socket_fd, send_buffer, len+8, origin->dest)) <= 0){
 			fprintf(stderr,"Socket %d failed to send messgae! \n", sockfd);
 			return -1;
 		}
 		
+		v = ucpRecvFrom(origin->ucpfd, ack_buffer, 5, sender_addr);
+		if (v > 0) break;
+		/*	
 		if(ucpSetSockRecvTimeout(ucp_socket_fd, 800) == EWOULDBLOCK ||
 			ucpRecvFrom(origin -> ucpfd, ack_buffer, 4, sender_addr) < 0) {
 			continue;
 		} else {
+			printf("hello\n");
 			if(verify_checksum(ack_buffer) && is_ack(ack_buffer, origin->seq)){
 				break;
 			}
-		}
+		}*/
 	}
+	free(ack_buffer);
+	memset(buf, 0, len);
 	origin->seq += 1;
 	return status_code - SEQUENCE_NUMBER_SIZE - CHECKSUM_LENGTH;
 }
 
-
-
-
-
-int rcsRecv(int sockfd, void *buf, int len)
-{
-	//receive from send, checksum, add to rcv buffer
+int rcsRecv(int sockfd, void *buf, int len) {
+	// ireceive from send, checksum, add to rcv buffer
 	// check is buffer full or termination signal receive
 	// if so return, else keep receiving
-	struct RCSSOC *origin = rcssoc_array[sockfd];
-	struct sockaddr_in *sender_addr = (struct sockaddr_in*)malloc(sizeof(struct sockaddr_in));
-	char* msg;
+	struct RCSSOC* origin;
+	struct sockaddr_in *sender_addr;
 	char* rcvbuffer;
-	int ucp_socket_fd = origin -> ucpfd;
-	int received_bytes = 0;
-	int seq = origin -> seq;
-	uint16_t cs;
+	int ucp_socket_fd;
+	int received_bytes;
+	char* msg;
 	char* send_buffer;
+	int cs;
+	int seq;
+	int v;
 
+	origin = rcssoc_array[sockfd];
+	sender_addr = (struct sockaddr_in*)malloc(sizeof(struct sockaddr_in));
+	rcvbuffer = malloc(len);
+	ucp_socket_fd = origin->ucpfd;
 	received_bytes = ucpRecvFrom(ucp_socket_fd, rcvbuffer, len, sender_addr);
-	printf("received bytes:%d\n", received_bytes);
-	printf("Receiveing on ucp %d\n", ucp_socket_fd);
+	printf("%d\n", received_bytes);
+
 	if(verify_checksum(rcvbuffer)) {
 		msg = "ack";
 	} else {
 		msg = "nack";
 	}
-
+	
+	seq = origin->seq;
+	origin->seq += 1;
 	cs = get_checksum(msg, seq);
-	send_buffer = (char*)make_pct(seq, msg, cs);
-
-	ucpSendTo(ucp_socket_fd, send_buffer, sizeof(send_buffer), origin->src);
-
-	buf = &(rcvbuffer[6]);
+	send_buffer = make_pct(seq, msg, cs);
+	v = ucpSendTo(ucp_socket_fd, send_buffer, sizeof(send_buffer), origin->src);
+	buf = &(rcvbuffer[8]);
+	free(send_buffer);
 	//printf("%d\n", received_bytes - CHECKSUM_LENGTH - SEQUENCE_NUMBER_SIZE);
 	//return received_bytes - CHECKSUM_LENGTH - SEQUENCE_NUMBER_SIZE;
 	return received_bytes;
 }
 
 int is_ack(void *buf, int seq) {
+	/*
 	int seq_from_buffer;
 	char msg_from_buffer[1];
 	char* index;
@@ -427,6 +458,7 @@ int is_ack(void *buf, int seq) {
 		return 0;
 	}
 
+	return 1;*/
 	return 1;
 }
 
