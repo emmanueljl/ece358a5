@@ -121,7 +121,6 @@ RCS functions:
 2. int rcsBind(int, struct sockaddr_in*) returns 0 on success.
 */
 int rcsSocket() {
-	// TODO: errno should be set here.
 	// TODO: Test.
 	int ucpfd;
 	int rcsfd;
@@ -153,7 +152,6 @@ int rcsSocket() {
 }
 
 int rcsBind(int sockfd, struct sockaddr_in *addr) {
-	// TODO: set errno
 	// TODO: Test.
 	int ucpfd;
 	int status_code;
@@ -170,17 +168,16 @@ int rcsBind(int sockfd, struct sockaddr_in *addr) {
 		rcssoc_array[sockfd] -> isBinded = 1;
 		return 0;
 	} else {
-		return -1;
+		return -1; // errno already set in ucpBind -> mybind
 	}
 }
 
 int rcsGetSockName(int sockfd, struct sockaddr_in *addr) {
-	// TODO: set errno
 	// TODO: Test.
 	int ucpfd;
 	int status_code;
 	struct sockaddr_in addr_copy;
-	
+
 	if(sockfd > 99 || sockfd < 0) {
 		fprintf(stderr,"Invalid sockfd! \n");
 		errno = EINVAL; /* Invalid argument */
@@ -189,13 +186,12 @@ int rcsGetSockName(int sockfd, struct sockaddr_in *addr) {
 	ucpfd = rcssoc_array[sockfd]->ucpfd;
 	addr_copy = *(addr);
 	status_code = ucpGetSockName(ucpfd, &addr_copy);
-	if (status_code == -1) return -1;
+	if (status_code == -1) return -1; // errno already set in ucpGetSockName -> getsockname
 	rcssoc_array[sockfd]->src = &addr_copy;
 	return status_code;
 }
 
 int rcsListen(int sockfd) {
-	// TODO: set errno
 	if(sockfd > 99 || sockfd < 0) {
 		fprintf(stderr,"Invalid sockfd! \n");
 		errno = EINVAL; /* Invalid argument */
@@ -207,7 +203,6 @@ int rcsListen(int sockfd) {
 }
 
 int rcsAccept(int sockfd, struct sockaddr_in *addr) {
-	// TODO: errno
 	int reclen;
 	struct sockaddr_in* sender_addr;
 	char buffer[5];
@@ -241,6 +236,7 @@ int rcsAccept(int sockfd, struct sockaddr_in *addr) {
 	reclen = ucpRecvFrom(origin->ucpfd, buffer, 5, sender_addr);
 	if ((reclen < 0) ||( strcmp(buffer, "icon") != 0)) {
 		fprintf(stderr,"The first msg from client is wrong!");
+		errno = EBADMSG; /* Bad message */
 		return -1;
 	}
 	new_rcsfd = rcsSocket();
@@ -287,6 +283,7 @@ int rcsAccept(int sockfd, struct sockaddr_in *addr) {
 	fprintf(stderr, "Second message from client is %s\n", buffer);
 
 	if(strcmp(buffer, "ack")) {
+		errno = EBADMSG; /* Bad message */
 		return -1;
 	}
 
@@ -312,6 +309,7 @@ int rcsConnect(int sockfd, const struct sockaddr_in *addr) {
 
 	if(origin->isBinded == 0){
 		fprintf(stderr,"Socket %d is not bounded! \n", sockfd);
+		errno = ENOTCONN; /* The socket is not connected */
 		return -1;
 	}
 
@@ -320,29 +318,26 @@ int rcsConnect(int sockfd, const struct sockaddr_in *addr) {
 	v = ucpSendTo(origin->ucpfd, msg, 5, addr);
 	if (v<0) {
 		// TODO: retry
-		// TODO: errno
-		return -1;
+		return -1; // errno already set in ucpSendTo
 	}
 	fprintf(stderr, "Send from upd %d\n", origin->ucpfd);
-	
+
 	// wait for ack from server
 	buffer = malloc(sizeof(struct sockaddr_in));
 	sender_addr = (struct sockaddr_in*)malloc(sizeof(struct sockaddr_in));
 	blocked = ucpRecvFrom(origin->ucpfd, buffer, sizeof(struct sockaddr_in), sender_addr);
 	if (blocked < 0) {
 		// TODO: retry
-		// TODO: errno
-		return -1;
+		return -1; // errno already set in ucpRecvFrom -> recvfrom
 	}
 
 	// send ack back to server using old addr
-	msg2 = "ack\0"; 
+	msg2 = "ack\0";
 	v = ucpSendTo(origin->ucpfd, msg2, 4, addr);
     if (v<0) {
 		// TODO: retry
-		// TODO: errno
 		fprintf(stderr, "Message sent %d\n", v);
-		return -1;
+		return -1; // errno already set in ucpSendTo
 	}
 
 	origin->dest = buffer;
@@ -352,7 +347,7 @@ int rcsConnect(int sockfd, const struct sockaddr_in *addr) {
 	//origin->ucpfd = received_sockfd;
 	//rcsBind(sockfd, origin->src);
 	//rcsGetSockName(received_sockfd, origin->src);
-	//rcsListen(received_sockfd);	
+	//rcsListen(received_sockfd);
 	return 0;
 }
 
@@ -376,13 +371,13 @@ int rcsSend(int sockfd, void *buf, int len) {
 		fprintf(stderr, "Sending on ucp %d\n", ucp_socket_fd);
 		if((status_code = ucpSendTo(ucp_socket_fd, send_buffer, len+8, origin->dest)) <= 0){
 			fprintf(stderr,"Socket %d failed to send messgae! \n", sockfd);
-			return -1;
+			return -1; // errno already set in ucpSendTo
 		}
-		
+
 		v = ucpRecvFrom(origin->ucpfd, ack_buffer, 5, sender_addr);
 		printf("%d", v);
 		if (v > 0) break;
-		/*	
+		/*
 		if(ucpSetSockRecvTimeout(ucp_socket_fd, 800) == EWOULDBLOCK ||
 			ucpRecvFrom(origin -> ucpfd, ack_buffer, 4, sender_addr) < 0) {
 			continue;
@@ -427,7 +422,7 @@ int rcsRecv(int sockfd, void *buf, int len) {
 	} else {
 		msg = "nack";
 	}
-	
+
 	seq = origin->seq;
 	origin->seq += 1;
 	cs = get_checksum(msg, seq);
