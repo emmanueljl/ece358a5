@@ -65,12 +65,18 @@ int verify_checksum(char* payload) {
 	uint16_t old_checksum;
 	uint16_t new_checksum;
 	int seq;
+	int i = 0;
+	char* buf;
 	index = payload;
-	old_checksum = ((uint16_t *)index)[0];
+	old_checksum = *((uint16_t *)index);
 	index += 4;
-	seq = ((uint16_t *)index)[0];
+	seq = *((int *)index);
 	index += 2;
-	new_checksum = get_checksum(index, seq);
+	while((index[i] != '\0') && i<494) i++;
+	buf = malloc(i);
+	strncpy(buf, index, i);
+	new_checksum = get_checksum(buf, seq);
+	free(buf);
 	if (new_checksum == old_checksum) return 1;
 	else return 0;
 }
@@ -362,14 +368,14 @@ int rcsSend(int sockfd, void *buf, int len) {
 	// if(len > some max){
 	// 	len = some max;
 	// }
-	if((status_code = ucpSendTo(ucp_socket_fd, send_buffer, len, origin->dest)) <= 0){
+	if((status_code = ucpSendTo(ucp_socket_fd, send_buffer, len+6, origin->dest)) <= 0){
 		fprintf(stderr,"Socket %d failed to send messgae! \n", sockfd);
 		return -1;
 	}
 
 	while (1) {
 		if(ucpSetSockRecvTimeout(ucp_socket_fd, 800) == EWOULDBLOCK) {
-			if((status_code = ucpSendTo(ucp_socket_fd, send_buffer, len, origin->dest)) <= 0){
+			if((status_code = ucpSendTo(ucp_socket_fd, send_buffer, len+6, origin->dest)) <= 0){
 				fprintf(stderr,"Socket %d failed to send messgae! \n", sockfd);
 				return -1;
 			}
