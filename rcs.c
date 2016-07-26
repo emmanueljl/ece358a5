@@ -127,12 +127,12 @@ int rcsSocket() {
 	int i;
 	struct RCSSOC* r;
 	ucpfd = ucpSocket();
-	fprintf(stderr, "UCPFD i is %d\n", ucpfd);
+	
 	if( ucpfd == -1) {
 		errno = EBADF; /* Bad file descriptor */
 		return -1;
 	}
-	// fprintf(stdout,"ucpfd in init is %d \n", ucpfd);
+	
 	rcsfd = 0;
 	i = 0;
 	while ((i<100) && (rcssoc_array[i]!=0)) {i++;}
@@ -140,7 +140,6 @@ int rcsSocket() {
 		errno = ENOBUFS; /* No buffer space available */
 		return -1;
 	}
-	fprintf(stderr, "Current i is %d\n", i);
 	rcsfd = i;
 	r = (struct RCSSOC*)malloc(sizeof(struct RCSSOC));
 	r->ucpfd = ucpfd;
@@ -161,7 +160,7 @@ int rcsBind(int sockfd, struct sockaddr_in *addr) {
 		return -1;
 	}
 	ucpfd = rcssoc_array[sockfd]->ucpfd;
-	// fprintf(stdout,"ucpfd in bind is %d \n", ucpfd);
+	
 	status_code = ucpBind(ucpfd, addr);
 
 	if(status_code == 0){
@@ -231,8 +230,6 @@ int rcsAccept(int sockfd, struct sockaddr_in *addr) {
 		return -1;
 	}
 
-	fprintf(stderr, "Accept before block ------------  receive from %d \n", origin -> ucpfd);
-
 	reclen = ucpRecvFrom(origin->ucpfd, buffer, 5, sender_addr);
 	if ((reclen < 0) ||( strcmp(buffer, "icon") != 0)) {
 		fprintf(stderr,"The first msg from client is wrong!");
@@ -280,7 +277,7 @@ int rcsAccept(int sockfd, struct sockaddr_in *addr) {
 	// Wait for client ACK.
 	memset(buffer, 0, 5);
 	blocked = ucpRecvFrom(origin -> ucpfd, buffer, 5, sender_addr);
-	fprintf(stderr, "Second message from client is %s\n", buffer);
+	fprintf(stderr, "Ackknowledge message from client is %s\n", buffer);
 
 	if(strcmp(buffer, "ack")) {
 		errno = EBADMSG; /* Bad message */
@@ -320,7 +317,6 @@ int rcsConnect(int sockfd, const struct sockaddr_in *addr) {
 		// TODO: retry
 		return -1; // errno already set in ucpSendTo
 	}
-	fprintf(stderr, "Send from upd %d\n", origin->ucpfd);
 
 	// wait for ack from server
 	buffer = malloc(sizeof(struct sockaddr_in));
@@ -360,6 +356,7 @@ int rcsSend(int sockfd, void *buf, int len) {
 	char* send_buffer;
 	int status_code;
 	int v;
+	int cnt = 0;
 	sender_addr = (struct sockaddr_in*)malloc(sizeof(struct sockaddr_in));
 	ack_buffer = malloc(5);
 	origin = rcssoc_array[sockfd];
@@ -368,26 +365,28 @@ int rcsSend(int sockfd, void *buf, int len) {
 	send_buffer = make_pct(origin->seq, buf, cs);
 
 	while(1) {
+		printf("CNT = %d\n", cnt);
 		fprintf(stderr, "Sending on ucp %d\n", ucp_socket_fd);
 		if((status_code = ucpSendTo(ucp_socket_fd, send_buffer, len+8, origin->dest)) <= 0){
 			fprintf(stderr,"Socket %d failed to send messgae! \n", sockfd);
 			return -1; // errno already set in ucpSendTo
 		}
-
-		v = ucpRecvFrom(origin->ucpfd, ack_buffer, 5, sender_addr);
-		printf("%d", v);
-		if (v > 0) break;
-		/*
-		if(ucpSetSockRecvTimeout(ucp_socket_fd, 800) == EWOULDBLOCK ||
-			ucpRecvFrom(origin -> ucpfd, ack_buffer, 4, sender_addr) < 0) {
+		cnt ++;
+		ucpSetSockRecvTimeout(ucp_socket_fd, 512);
+		perror("Current");
+		if(errno == EWOULDBLOCK || ucpRecvFrom(origin -> ucpfd, ack_buffer, 4, sender_addr) < 0) {
+			printf("Error number matches: %d\n", errno == EWOULDBLOCK );
+			errno = 0;
 			continue;
 		} else {
 			printf("hello\n");
 			if(verify_checksum(ack_buffer) && is_ack(ack_buffer, origin->seq)){
 				break;
 			}
-		}*/
+		}
 	}
+
+
 	free(ack_buffer);
 	memset(buf, 0, len);
 	origin->seq += 1;
@@ -415,7 +414,8 @@ int rcsRecv(int sockfd, void *buf, int len) {
 	rcvbuffer = malloc(len);
 	ucp_socket_fd = origin->ucpfd;
 	received_bytes = ucpRecvFrom(ucp_socket_fd, rcvbuffer, len, sender_addr);
-	printf("%d\n", received_bytes);
+	printf("Received bytes on rcsRecv is %d\n", received_bytes);
+	printf("Received message is %s\n", rcvbuffer);
 
 	if(verify_checksum(rcvbuffer)) {
 		msg = "ack";
@@ -432,7 +432,7 @@ int rcsRecv(int sockfd, void *buf, int len) {
 	free(send_buffer);
 	//printf("%d\n", received_bytes - CHECKSUM_LENGTH - SEQUENCE_NUMBER_SIZE);
 	//return received_bytes - CHECKSUM_LENGTH - SEQUENCE_NUMBER_SIZE;
-	return received_bytes;
+	return received_bytes - CHECKSUM_LENGTH - SEQUENCE_NUMBER_SIZE;
 }
 
 int is_ack(void *buf, int seq) {
@@ -459,49 +459,6 @@ int is_ack(void *buf, int seq) {
 	return 1;
 }
 
-
-/*
-int rcsSend(int sockfd, void *buf, int len) {
-	char *ack_buffer;
-	struct sockaddr_in *sender_addr = (struct sockaddr_in*)malloc(sizeof(struct sockaddr_in));
-	struct RCSSOC *origin = rcssoc_array[sockfd];
-	int ucp_socket_fd = origin -> ucpfd;
-	uint16_t cs = get_checksum(buf, origin -> seq);
-	char* send_buffer = make_pct(origin->seq, buf, cs);
-	int status_code;
-	// if(len > some max){
-	// 	len = some max;
-	// }
-	//uint16_t oldcs;
-	//char* index = send_buffer;
-	//index += 2;
-	//printf("seq=%d\n", *((int*)index));
-	//oldcs = *((uint16_t*)send_buffer);
-	//if (oldcs == cs) printf("hahahaha\n");
-	if((status_code = ucpSendTo(ucp_socket_fd, send_buffer, len+6, origin->dest)) <= 0){
-		fprintf(stderr,"Socket %d failed to send messgae! \n", sockfd);
-		return -1;
-	}
-
-	while (1) {
-		if(ucpSetSockRecvTimeout(ucp_socket_fd, 800) == EWOULDBLOCK) {
-			if((status_code = ucpSendTo(ucp_socket_fd, send_buffer, len+6, origin->dest)) <= 0){
-				fprintf(stderr,"Socket %d failed to send messgae! \n", sockfd);
-				return -1;
-			}
-			printf("%d\n", status_code);
-		}  else if(ucpRecvFrom(origin -> ucpfd, ack_buffer, 10, sender_addr) > 0 ){
-			if(verify_checksum(ack_buffer) && is_ack(ack_buffer, origin->seq)){
-				break;
-			}
-		}
-	}
-
-	origin->seq += 1;
-
-	return status_code - SEQUENCE_NUMBER_SIZE - CHECKSUM_LENGTH;
-}*/
-
 int rcsClose(int sockfd)
 {
 	char *buffer = "\0";
@@ -512,43 +469,3 @@ int rcsClose(int sockfd)
 	return 0;
 }
 
-/* Old implementations. Delete later.
-char* get_checksum(int seq, char* buf) {
-	char *payload; //This is a local payload area, used to calculate checksome
-	char *checksum; //SHA1 value of SEQ+DATA
-	int length; //The size of SEQ+DATA
-    unsigned char hash[SHA_DIGEST_LENGTH]; //char array holding the SHA1 value
-	char *index;
-	int i;
-	int payload_size = UDP_DATAGRAM_SIZE - SHA_DIGEST_LENGTH;
-	i = 0;
-	checksum = malloc(SHA_DIGEST_LENGTH+1);
-	memset(checksum, 0, SHA_DIGEST_LENGTH+1);
-    payload = malloc(payload_size);
-    memset(payload, 0, payload_size);
-	index = payload;
-    memcpy(payload, &seq, SEQUENCE_NUMBER_SIZE);
-	index += 2;
-    strncpy(index, buf, payload_size -SEQUENCE_NUMBER_SIZE-1);
-    length = 2+strlen(index);
-    SHA1(payload, length, hash);
-    for (i = 0; i < SHA_DIGEST_LENGTH; i++) {
-        checksum[i] = hash[i];
-    }
-	free(payload);
-    return &(checksum[0]);
-}
-
-int verify_checksum(char *buf) {
-
-    int payload_size = UDP_DATAGRAM_SIZE - SHA_DIGEST_LENGTH;
-    char *payload;
-    strncpy(payload, &(buf[40]), payload_size);
-    unsigned char hash_from_buf[SHA_DIGEST_LENGTH];
-    strncpy(hash_from_buf, buf, SHA_DIGEST_LENGTH);
-    size_t length = sizeof(payload);
-    unsigned char hash[SHA_DIGEST_LENGTH];
-    SHA1(payload, length, hash);
-    return strcmp(hash,hash_from_buf) == 0 ? 1 : 0;
-}
-*/
