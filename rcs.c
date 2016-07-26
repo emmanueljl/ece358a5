@@ -57,29 +57,18 @@ int get_checksum(char* buf, int seq) {
 }
 
 int verify_checksum(char* payload) {
-	// TODO: Test.
-	/*
-	char* index;
-	int old_checksum;
-	int new_checksum;
+	char* p=payload;
 	int seq;
-	int i;
-	char* buf;
-	index = payload;
-	old_checksum = *((int*)index);
-	index += 4;
-	seq = *((int*)index);
-	index += 4;
-	i = 0;
-	while(index[i] != '\0') i++;
-	buf = malloc(i+2);
-	strcpy(buf, index);
-	buf[i+1] = '\0';
-	new_checksum = get_checksum(buf, seq);
-	free(buf);
+	p += 4;
+	seq = *((int*)p);
+	int old_checksum = *((int*)payload);
+	int new_checksum = get_checksum(payload+8, seq);
+	printf("old_checksum=%d\n", old_checksum);
+	printf("new_checksum=%d\n", new_checksum);
+	printf("msg=%s\n", payload+8);
+	printf("seq=%d\n", seq);
 	if (new_checksum == old_checksum) return 1;
-	else return 0;*/
-	return 1;
+	else return 0;
 }
 
 char* make_pct(int seq, char* buf, int checksum) {
@@ -106,12 +95,8 @@ char* make_pct(int seq, char* buf, int checksum) {
 	index[5] = (seq>>8) & 0xff;
 	index[6] = (seq>>16) & 0xff;
 	index[7] = (seq>>24) & 0xff;
-	while(buf[i] != '\0') {
-		index[j] = buf[i];
-		i++;
-		j++;
-	}
-	index[j+1] = '\0';
+	printf("original=%s", buf);
+	strcpy(&(index[8]), buf);
 	return payload;
 }
 
@@ -412,10 +397,11 @@ int rcsRecv(int sockfd, void *buf, int len) {
 	origin = rcssoc_array[sockfd];
 	sender_addr = (struct sockaddr_in*)malloc(sizeof(struct sockaddr_in));
 	rcvbuffer = malloc(len);
+	memset(rcvbuffer, 0 , len);
 	ucp_socket_fd = origin->ucpfd;
 	received_bytes = ucpRecvFrom(ucp_socket_fd, rcvbuffer, len, sender_addr);
 	printf("Received bytes on rcsRecv is %d\n", received_bytes);
-	printf("Received message is %s\n", rcvbuffer);
+	printf("Received message is %s\n", rcvbuffer+8);
 
 	if(verify_checksum(rcvbuffer)) {
 		msg = "ack";
@@ -436,27 +422,16 @@ int rcsRecv(int sockfd, void *buf, int len) {
 }
 
 int is_ack(void *buf, int seq) {
-	/*
+	int cs;
 	int seq_from_buffer;
-	char msg_from_buffer[1];
-	char* index;
-	index = buf+4;
-	seq_from_buffer = ((int*)index)[0];
-
-	if(seq == seq_from_buffer) {
-		return 0;
-	}
-
-	index += 2;
-
-	memcpy( msg_from_buffer, index, 1);
-
-	if(msg_from_buffer[0] == 'n') {
-		return 0;
-	}
-
-	return 1;*/
-	return 1;
+	char *msg;
+	cs = *((int*)buf);
+	msg = buf+4;
+	seq_from_buffer = *((int*)msg);
+	msg+=4;
+	printf("msg in is ack=%s", msg);
+	if((strcmp(msg, "ack")==0) && seq_from_buffer == seq) return 1;
+	else return 0;
 }
 
 int rcsClose(int sockfd)
