@@ -132,20 +132,6 @@ int rcsSocket() {
 
 	fprintf(stderr, "Newly added socket is %d with ucp socket id %d\n", rcsfd, ucpfd);
 	return rcsfd;
-	/* Old code. Have some coding issus. Rewritten.
-	for(i = 0; i < sizeof(rcssoc_array) / sizeof(struct RCSSOC); i ++){
-		if(rcssoc_array[i] == 0){
-			rcsfd = i;
-			struct RCSSOC *r = (struct RCSSOC*)malloc(sizeof(struct RCSSOC));
-			r->ucpfd = ucpfd;
-			r->inUse = 1;
-			rcssoc_array[i] = r;
-			// fprintf(stderr, "Current used index is %d\n", i);
-			break;
-		}
-	}
-	return rcsfd;
-	*/
 }
 
 int rcsBind(int sockfd, struct sockaddr_in *addr) {
@@ -175,15 +161,18 @@ int rcsGetSockName(int sockfd, struct sockaddr_in *addr) {
 	// TODO: Test.
 	int ucpfd;
 	int status_code;
+	struct sockaddr_in addr_copy;
+	
 	if(sockfd > 99 || sockfd < 0) {
 		fprintf(stderr,"Invalid sockfd! \n");
 		errno = EINVAL; /* Invalid argument */
 		return -1;
 	}
 	ucpfd = rcssoc_array[sockfd]->ucpfd;
-	status_code = ucpGetSockName(ucpfd, addr);
+	addr_copy = *(addr);
+	status_code = ucpGetSockName(ucpfd, &addr_copy);
 	if (status_code == -1) return -1;
-	rcssoc_array[sockfd]->src = addr;
+	rcssoc_array[sockfd]->src = &addr_copy;
 	return status_code;
 }
 
@@ -199,17 +188,24 @@ int rcsListen(int sockfd) {
 	return 0;
 }
 
-// From this point, the code has not been checked.
 int rcsAccept(int sockfd, struct sockaddr_in *addr) {
-	char buffer[5] = {0};
-	char *msg = "syn-ack\0";
-	struct sockaddr_in *sender_addr = (struct sockaddr_in*)malloc(sizeof(struct sockaddr_in));
+	// TODO: errno
+	int reclen;
+	struct sockaddr_in* sender_addr;
+	char buffer[5];
+	int new_rcsfd;
+	struct sockaddr_in new_addr;
+	int index;
+	char *msg;
+
+	sender_addr = (struct sockaddr_in*)malloc(sizeof(struct sockaddr_in));
+	memset(buffer, 0, 5);
+	msg = malloc(sizeof(struct sockaddr_in));
+
 	struct RCSSOC *origin = rcssoc_array[sockfd];
-	int new_rcsfd ;
 	int i;
 	int blocked = 0;
 	int v;
-	int received_sockfd;
 
 	if(sockfd > 99 || sockfd < 0) {
 		fprintf(stderr,"Invalid sockfd! \n");
@@ -224,39 +220,53 @@ int rcsAccept(int sockfd, struct sockaddr_in *addr) {
 
 	fprintf(stderr, "Accept before block ------------  receive from %d \n", origin -> ucpfd);
 
-	blocked = ucpRecvFrom(origin -> ucpfd, buffer, 4, sender_addr);
-	received_sockfd = *((int*)buffer);
-	// for(i = 0; i < 3; i++){
-	// 	fprintf(stderr,"Before ADD!!! Socket %d has value ------- %s! \n", i, rcssoc_array[i]);
-	// }
-	for(i = 0; i < 100; i ++){
-		if(rcssoc_array[i] == 0){
-			struct RCSSOC *r = (struct RCSSOC*)malloc(sizeof(struct RCSSOC));
-			new_rcsfd = i;
-			r -> ucpfd = received_sockfd;
-			r -> inUse = 1;
-			r -> max_buffer = 10;
-			r -> src = origin -> src;
-			r -> dest = sender_addr;
-			rcssoc_array[i] = r;
-			break;
-		}
+	reclen = ucpRecvFrom(origin->ucpfd, buffer, 5, sender_addr);
+	if ((reclen < 0) ||( strcmp(buffer, "icon") != 0)) {
+		fprintf(stderr,"The first msg from client is wrong!");
+		return -1;
 	}
-	// for(i = 0; i < 3; i++){
-	// 	fprintf(stderr,"After ADD!!! Socket %d has value ------- %s! \n", i, rcssoc_array[i]);
-	// }
+	new_rcsfd = rcsSocket();
+	memset(&new_addr, 0, sizeof(struct sockaddr_in));
+    new_addr.sin_family = AF_INET;
+    new_addr.sin_port = 0;
+    if((new_addr.sin_addr.s_addr = getPublicIPAddr()) == 0) {
+        fprintf(stderr, "Could not get public ip address. Exiting...\n");
+        exit(0);
+    }
 
+	if(rcsBind(new_rcsfd, &new_addr) < 0) {
+        fprintf(stderr, "rcsBind() failed. Exiting...\n");
+        exit(0);
+	}
+
+
+	if(rcsGetSockName(new_rcsfd, &new_addr) < 0) {
+        fprintf(stderr, "rcsGetSockName() failed. Exiting...\n");
+        exit(0);
+    }
+
+    if(rcsListen(new_rcsfd) < 0) {
+        perror("listen"); exit(0);
+    }
+
+	rcssoc_array[new_rcsfd]->dest = sender_addr;
 	fprintf(stderr,"Socket %d is accepting! \n", new_rcsfd);
-	// fprintf(stderr,"UDP Socket %d is accepting! \n", rcssoc_array[1]->ucpfd);
+
+	// The server return new addr to the client.
 	addr = sender_addr;
+	memcpy(msg, &new_addr, sizeof(struct sockaddr_in));
+	v = ucpSendTo(rcssoc_array[new_rcsfd]->ucpfd, msg, sizeof(struct sockaddr_in), sender_addr);
+	if (v == -1) {
+		// TODO: Timeout support
+		fprintf(stderr, "server ack failed!\n");
+		exit(0);
+	}
+	fprintf(stderr,"Message Sent %d !\n", v);
 
-	v = ucpSendTo(rcssoc_array[new_rcsfd]-> ucpfd, msg, 8, sender_addr);
-	fprintf(stderr,"Message Sent %d ! \n", v);
-
-	memset(buffer, 0, 4);
-	blocked = ucpRecvFrom(origin -> ucpfd, buffer, 4, sender_addr);
+	// Wait for client ACK.
+	memset(buffer, 0, 5);
+	blocked = ucpRecvFrom(origin -> ucpfd, buffer, 5, sender_addr);
 	fprintf(stderr, "Second message from client is %s\n", buffer);
-
 
 	if(strcmp(buffer, "ack")) {
 		return -1;
@@ -265,43 +275,103 @@ int rcsAccept(int sockfd, struct sockaddr_in *addr) {
 	return new_rcsfd;
 }
 
-int rcsConnect(int sockfd, const struct sockaddr_in *addr)
-{
-	char buffer[8] = {0};
-	char msg[5] = {0};
+int rcsConnect(int sockfd, const struct sockaddr_in *addr) {
+	struct RCSSOC *origin;
+	char *msg;
 	char *msg2;
-	msg[0] = ((rcssoc_array[sockfd]->ucpfd)>>0) & 0xff;
-	msg[1] = ((rcssoc_array[sockfd]->ucpfd)>>8) & 0xff;
-	msg[2] = ((rcssoc_array[sockfd]->ucpfd)>>16) & 0xff;
-	msg[3] = ((rcssoc_array[sockfd]->ucpfd)>>24) & 0xff;
-	struct sockaddr_in *sender_addr = (struct sockaddr_in*)malloc(sizeof(struct sockaddr_in));
-	struct RCSSOC *origin = rcssoc_array[sockfd];
-	int blocked = 0;
 	int v;
+	int blocked;
+	struct sockaddr_in* buffer;
+	struct sockaddr_in* sender_addr;
+
+	origin = rcssoc_array[sockfd];
 
 	if(sockfd > 99 || sockfd < 0) {
 		fprintf(stderr,"Invalid sockfd! \n");
 		errno = EINVAL; /* Invalid argument */
 		return -1;
 	}
-	if(origin -> isBinded == 0){
+
+	if(origin->isBinded == 0){
 		fprintf(stderr,"Socket %d is not bounded! \n", sockfd);
 		return -1;
 	}
 
-	v = ucpSendTo(origin -> ucpfd, msg, 5, addr);
-	fprintf(stderr, "Connect before block ------------  Send to upd %d ---- returned %d\n", origin -> ucpfd, v);
+	// Prepare for the first contact
+	msg = "icon";
+	v = ucpSendTo(origin->ucpfd, msg, 5, addr);
+	if (v<0) {
+		// TODO: retry
+		// TODO: errno
+		return -1;
+	}
+	fprintf(stderr, "Send from upd %d\n", origin->ucpfd);
+	
+	// wait for ack from server
+	buffer = malloc(sizeof(struct sockaddr_in));
+	sender_addr = (struct sockaddr_in*)malloc(sizeof(struct sockaddr_in));
+	blocked = ucpRecvFrom(origin->ucpfd, buffer, sizeof(struct sockaddr_in), sender_addr);
+	if (blocked < 0) {
+		// TODO: retry
+		// TODO: errno
+		return -1;
+	}
 
-    blocked = ucpRecvFrom(origin -> ucpfd, buffer, 8, sender_addr);
+	// send ack back to server using old addr
+	msg2 = "ack\0"; 
+	v = ucpSendTo(origin->ucpfd, msg2, 4, addr);
+    if (v<0) {
+		// TODO: retry
+		// TODO: errno
+		fprintf(stderr, "Message sent %d\n", v);
+		return -1;
+	}
 
-    fprintf(stderr, "Meesage from server is %s\n", buffer);
-	fprintf(stderr, "Connect after block ---------%s--- \n", buffer);
+	origin->dest = buffer;
 
-    msg2 = "ack\0";
-	v = ucpSendTo(origin -> ucpfd, msg2, 10, addr);
-	origin->dest = sender_addr;
+    //fprintf(stderr, "Meesage from server is %s\n", buffer);
+	//fprintf(stderr, "Connect after block ---------%s--- \n", buffer);
+	//origin->ucpfd = received_sockfd;
+	//rcsBind(sockfd, origin->src);
+	//rcsGetSockName(received_sockfd, origin->src);
+	//rcsListen(received_sockfd);	
 	return 0;
 }
+
+int rcsSend(int sockfd, void *buf, int len) {
+	char *ack_buffer;
+	struct sockaddr_in *sender_addr = (struct sockaddr_in*)malloc(sizeof(struct sockaddr_in));
+	struct RCSSOC *origin = rcssoc_array[sockfd];
+	int ucp_socket_fd = origin -> ucpfd;
+	uint16_t cs = get_checksum(buf, origin -> seq);
+	char* send_buffer = make_pct(origin->seq, buf, cs);
+	int status_code;
+	printf("seq=%d\n", *(((int*)(send_buffer+2))));
+	printf("msg=%s\n", send_buffer+6);
+	printf("size=%d\n", 6 + (int)strlen(send_buffer+6));
+	while(1) {
+		fprintf(stderr, "Sending on ucp %d\n", ucp_socket_fd);
+		if((status_code = ucpSendTo(ucp_socket_fd, send_buffer, len+6, origin->dest)) <= 0){
+			fprintf(stderr,"Socket %d failed to send messgae! \n", sockfd);
+			return -1;
+		}
+		
+		if(ucpSetSockRecvTimeout(ucp_socket_fd, 800) == EWOULDBLOCK ||
+			ucpRecvFrom(origin -> ucpfd, ack_buffer, 4, sender_addr) < 0) {
+			continue;
+		} else {
+			if(verify_checksum(ack_buffer) && is_ack(ack_buffer, origin->seq)){
+				break;
+			}
+		}
+	}
+	origin->seq += 1;
+	return status_code - SEQUENCE_NUMBER_SIZE - CHECKSUM_LENGTH;
+}
+
+
+
+
 
 int rcsRecv(int sockfd, void *buf, int len)
 {
@@ -360,36 +430,7 @@ int is_ack(void *buf, int seq) {
 	return 1;
 }
 
-int rcsSend(int sockfd, void *buf, int len) {
-	char *ack_buffer;
-	struct sockaddr_in *sender_addr = (struct sockaddr_in*)malloc(sizeof(struct sockaddr_in));
-	struct RCSSOC *origin = rcssoc_array[sockfd];
-	int ucp_socket_fd = origin -> ucpfd;
-	uint16_t cs = get_checksum(buf, origin -> seq);
-	char* send_buffer = make_pct(origin->seq, buf, cs);
-	int status_code;
-	printf("seq=%d\n", *(((int*)(send_buffer+2))));
-	printf("msg=%s\n", send_buffer+6);
-	printf("size=%d\n", 6 + (int)strlen(send_buffer+6));
-	while(1) {
-		fprintf(stderr, "Sending on ucp %d\n", ucp_socket_fd);
-		if((status_code = ucpSendTo(ucp_socket_fd, send_buffer, len+6, origin->dest)) <= 0){
-			fprintf(stderr,"Socket %d failed to send messgae! \n", sockfd);
-			return -1;
-		}
-		
-		if(ucpSetSockRecvTimeout(ucp_socket_fd, 800) == EWOULDBLOCK ||
-			ucpRecvFrom(origin -> ucpfd, ack_buffer, 4, sender_addr) < 0) {
-			continue;
-		} else {
-			if(verify_checksum(ack_buffer) && is_ack(ack_buffer, origin->seq)){
-				break;
-			}
-		}
-	}
-	origin->seq += 1;
-	return status_code - SEQUENCE_NUMBER_SIZE - CHECKSUM_LENGTH;
-}
+
 /*
 int rcsSend(int sockfd, void *buf, int len) {
 	char *ack_buffer;
