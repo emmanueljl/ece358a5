@@ -81,15 +81,14 @@ char* make_pct(int seq, char* buf, uint16_t checksum) {
 	payload = malloc(UDP_DATAGRAM_SIZE);
 	memset(payload, 0, UDP_DATAGRAM_SIZE);
 	index = payload;
-	((uint16_t*)index)[0] = checksum;
-	index += 4;
-	((int*)index)[0] = seq;
-	index += 2;
+	index[0] = (checksum>>0) & 0xff;
+	index[1] = (checksum>>8) & 0xff;
+	index[2] = (checksum>>16) & 0xff;
+	index[3] = (checksum>>24) & 0xff;
+	index[4] = (seq>>0) & 0xff;
+	index[5] = (seq>>8) & 0xff;
+	index += 6;
 	strncpy(index, buf, UDP_DATAGRAM_SIZE - 6);
-
-
-
-
 	return payload;
 }
 /*
@@ -325,7 +324,9 @@ int rcsRecv(int sockfd, void *buf, int len)
 	ucpSendTo(ucp_socket_fd, send_buffer, sizeof(send_buffer), origin->src);
 
 	buf = &(rcvbuffer[6]);
-	return received_bytes - CHECKSUM_LENGTH - SEQUENCE_NUMBER_SIZE;
+	//printf("%d\n", received_bytes - CHECKSUM_LENGTH - SEQUENCE_NUMBER_SIZE);
+	//return received_bytes - CHECKSUM_LENGTH - SEQUENCE_NUMBER_SIZE;
+	return received_bytes;
 }
 
 int is_ack(void *buf, int seq) {
@@ -358,7 +359,6 @@ int rcsSend(int sockfd, void *buf, int len) {
 	uint16_t cs = get_checksum(buf, origin -> seq);
 	char* send_buffer = make_pct(origin->seq, buf, cs);
 	int status_code;
-
 	// if(len > some max){
 	// 	len = some max;
 	// }
@@ -367,15 +367,13 @@ int rcsSend(int sockfd, void *buf, int len) {
 		return -1;
 	}
 
-	printf("seq=%d\n", ((int*)(send_buffer+4))[0]);
-	printf("msg=%s\n", send_buffer+6);
-
 	while (1) {
-		if(ucpSetSockRecvTimeout(ucp_socket_fd, 800) == EWOULDBLOCK){
+		if(ucpSetSockRecvTimeout(ucp_socket_fd, 800) == EWOULDBLOCK) {
 			if((status_code = ucpSendTo(ucp_socket_fd, send_buffer, len, origin->dest)) <= 0){
 				fprintf(stderr,"Socket %d failed to send messgae! \n", sockfd);
 				return -1;
 			}
+			printf("%d\n", status_code);
 		}  else if(ucpRecvFrom(origin -> ucpfd, ack_buffer, 10, sender_addr) > 0 ){
 			if(verify_checksum(ack_buffer) && is_ack(ack_buffer, origin->seq)){
 				break;
