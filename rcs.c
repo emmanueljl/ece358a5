@@ -380,6 +380,7 @@ int rcsSend(int sockfd, void *buf, int len) {
 		}
 		
 		v = ucpRecvFrom(origin->ucpfd, ack_buffer, 5, sender_addr);
+		printf("%d", v);
 		if (v > 0) break;
 		/*	
 		if(ucpSetSockRecvTimeout(ucp_socket_fd, 800) == EWOULDBLOCK ||
@@ -395,6 +396,7 @@ int rcsSend(int sockfd, void *buf, int len) {
 	free(ack_buffer);
 	memset(buf, 0, len);
 	origin->seq += 1;
+	printf("%d\n",status_code);
 	return status_code - SEQUENCE_NUMBER_SIZE - CHECKSUM_LENGTH;
 }
 
@@ -430,7 +432,7 @@ int rcsRecv(int sockfd, void *buf, int len) {
 	origin->seq += 1;
 	cs = get_checksum(msg, seq);
 	send_buffer = make_pct(seq, msg, cs);
-	v = ucpSendTo(ucp_socket_fd, send_buffer, sizeof(send_buffer), origin->src);
+	v = ucpSendTo(ucp_socket_fd, send_buffer, sizeof(send_buffer), origin->dest);
 	buf = &(rcvbuffer[8]);
 	free(send_buffer);
 	//printf("%d\n", received_bytes - CHECKSUM_LENGTH - SEQUENCE_NUMBER_SIZE);
