@@ -46,7 +46,7 @@ int get_checksum(char* buf, int seq) {
 	int index = 0;
 	sum1 = seq % 255;
 	sum2 = seq % 255;
-	while(buf[index] != '\0') {
+	while(buf[index] != '\n') {
 		sum1 = (sum1 + (buf[index] - '0')) % 255;
 		sum2 = (sum2 + sum1)  % 255;
 		index += 1;
@@ -57,29 +57,29 @@ int get_checksum(char* buf, int seq) {
 }
 
 int verify_checksum(char* payload) {
-	// TODO: Test.
-	/*
-	char* index;
-	int old_checksum;
-	int new_checksum;
-	int seq;
-	int i;
-	char* buf;
-	index = payload;
-	old_checksum = *((int*)index);
+	char* index = payload;
+	int old_cs = *((int*)index);
 	index += 4;
-	seq = *((int*)index);
+	int seq = *((int*)index);
 	index += 4;
-	i = 0;
-	while(index[i] != '\0') i++;
-	buf = malloc(i+2);
-	strcpy(buf, index);
-	buf[i+1] = '\0';
-	new_checksum = get_checksum(buf, seq);
-	free(buf);
-	if (new_checksum == old_checksum) return 1;
-	else return 0;*/
-	return 1;
+	int i = 0;
+	while(index[i]!='\n') {
+		i += 1;
+	}
+	char* msg;
+	msg = malloc(i+1);
+	msg[i] = '\0';
+	while(i>=0) {
+		msg[i] = index[i];
+		i -= 1;
+	}
+	int new_cs = get_checksum(msg, seq);
+	free(msg);
+	if (new_cs == old_cs) {
+		printf("Yes, it passed!\n");
+		return 1;
+	}
+	else return 0;
 }
 
 char* make_pct(int seq, char* buf, int checksum) {
@@ -416,12 +416,12 @@ int rcsRecv(int sockfd, void *buf, int len) {
 	ucp_socket_fd = origin->ucpfd;
 	received_bytes = ucpRecvFrom(ucp_socket_fd, rcvbuffer, len, sender_addr);
 	printf("Received bytes on rcsRecv is %d\n", received_bytes);
-	printf("Received message is %s\n", rcvbuffer+8);
-
+	printf("Received message is %s", rcvbuffer+8);
+	printf("end\n");
 	if(verify_checksum(rcvbuffer)) {
-		msg = "ack";
+		msg = "ack\n";
 	} else {
-		msg = "nack";
+		msg = "nack\n";
 	}
 
 	seq = origin->seq;
@@ -437,26 +437,25 @@ int rcsRecv(int sockfd, void *buf, int len) {
 }
 
 int is_ack(void *buf, int seq) {
-	/*
+	int cs;	
 	int seq_from_buffer;
-	char msg_from_buffer[1];
+	char* msg;
+	cs = verify_checksum(buf);
+	if (cs != 1) {
+		printf("ack checksum failed!\n");
+		return 0;
+	}
 	char* index;
-	index = buf+4;
-	seq_from_buffer = ((int*)index)[0];
-
-	if(seq == seq_from_buffer) {
+	index += 4;
+	seq_from_buffer = *((int*)index);
+	index += 4;
+	if(seq != seq_from_buffer) {
 		return 0;
 	}
 
-	index += 2;
-
-	memcpy( msg_from_buffer, index, 1);
-
-	if(msg_from_buffer[0] == 'n') {
+	if( index[0] == 'n') {
 		return 0;
 	}
-
-	return 1;*/
 	return 1;
 }
 
