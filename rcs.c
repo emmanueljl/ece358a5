@@ -46,7 +46,7 @@ int get_checksum(char* buf, int seq) {
 	int index = 0;
 	sum1 = seq % 255;
 	sum2 = seq % 255;
-	while(buf[index] != '\n') {
+	while((buf[index] != '\n') && (buf[index] != '\0')) {
 		sum1 = (sum1 + (buf[index] - '0')) % 255;
 		sum2 = (sum2 + sum1)  % 255;
 		index += 1;
@@ -106,7 +106,7 @@ char* make_pct(int seq, char* buf, int checksum) {
 	index[5] = (seq>>8) & 0xff;
 	index[6] = (seq>>16) & 0xff;
 	index[7] = (seq>>24) & 0xff;
-	printf("original=%s", buf);
+	
 	while(buf[i] != '\0') {
 		index[j] = buf[i];
 		i++;
@@ -339,12 +339,6 @@ int rcsConnect(int sockfd, const struct sockaddr_in *addr) {
 
 	origin->dest = buffer;
 
-    //fprintf(stderr, "Meesage from server is %s\n", buffer);
-	//fprintf(stderr, "Connect after block ---------%s--- \n", buffer);
-	//origin->ucpfd = received_sockfd;
-	//rcsBind(sockfd, origin->src);
-	//rcsGetSockName(received_sockfd, origin->src);
-	//rcsListen(received_sockfd);
 	return 0;
 }
 
@@ -374,16 +368,16 @@ int rcsSend(int sockfd, void *buf, int len) {
 		}
 		cnt ++;
 		ucpSetSockRecvTimeout(ucp_socket_fd, 512);
-		perror("Current");
-		if(errno == EWOULDBLOCK || ucpRecvFrom(origin -> ucpfd, ack_buffer, 4, sender_addr) < 0) {
+		
+		if(errno == EWOULDBLOCK || ucpRecvFrom(origin -> ucpfd, ack_buffer, 12, sender_addr) < 0) {
 			printf("Error number matches: %d\n", errno == EWOULDBLOCK );
 			errno = 0;
 			continue;
 		} else {
-			printf("hello\n");
-			if(verify_checksum(ack_buffer) && is_ack(ack_buffer, origin->seq)){
+			printf("the received ack is=%s\n", ack_buffer+8);
+			if(is_ack(ack_buffer, origin->seq)){
 				break;
-			}
+			} 
 		}
 	}
 
@@ -404,7 +398,7 @@ int rcsRecv(int sockfd, void *buf, int len) {
 	char* rcvbuffer;
 	int ucp_socket_fd;
 	int received_bytes;
-	char* msg;
+	char msg[4];
 	char* send_buffer;
 	int cs;
 	int seq;
@@ -419,41 +413,54 @@ int rcsRecv(int sockfd, void *buf, int len) {
 	printf("Received message is %s", rcvbuffer+8);
 	printf("end\n");
 	if(verify_checksum(rcvbuffer)) {
-		msg = "ack\n";
+		msg[0] = 'a';
+		msg[1] = 'c';
+		msg[2] = 'k';
+		msg[3] = '\n';
 	} else {
-		msg = "nack\n";
-	}
-
+		msg[0] = 'n';
+		msg[1] = 'a';
+		msg[2] = 'c';
+		msg[3] = '\n';
+ 	}
 	seq = origin->seq;
-	origin->seq += 1;
 	cs = get_checksum(msg, seq);
+	printf("The correct ack cs is=%d\n", cs);
+	printf("The message is %s\n", msg);
 	send_buffer = make_pct(seq, msg, cs);
-	v = ucpSendTo(ucp_socket_fd, send_buffer, sizeof(send_buffer), origin->dest);
-	buf = &(rcvbuffer[8]);
+	printf("The send_buffer messgae is %s\n",  send_buffer+8);
+	v = ucpSendTo(ucp_socket_fd, send_buffer, 12, origin->dest);
+	printf("The v is %d\n", v);
+	memcpy(buf, rcvbuffer+8, received_bytes-8);
+	//buf = rcvbuffer+8;
 	free(send_buffer);
 	//printf("%d\n", received_bytes - CHECKSUM_LENGTH - SEQUENCE_NUMBER_SIZE);
 	//return received_bytes - CHECKSUM_LENGTH - SEQUENCE_NUMBER_SIZE;
-	return received_bytes - CHECKSUM_LENGTH - SEQUENCE_NUMBER_SIZE;
+	origin->seq += 1;
+	return received_bytes - 8;
 }
 
 int is_ack(void *buf, int seq) {
-	int cs;	
+	int cs = 0;
 	int seq_from_buffer;
-	char* msg;
+	printf("msg is = %s", buf+8);
+	printf("end!\n");
 	cs = verify_checksum(buf);
 	if (cs != 1) {
-		printf("ack checksum failed!\n");
+		printf("Ack checksum failed!\n");
 		return 0;
 	}
-	char* index;
+	char* index=buf;
 	index += 4;
 	seq_from_buffer = *((int*)index);
 	index += 4;
 	if(seq != seq_from_buffer) {
+		printf("Ack match sequence number failed!\n");
 		return 0;
 	}
 
 	if( index[0] == 'n') {
+		printf("NAck!\n");
 		return 0;
 	}
 	return 1;
